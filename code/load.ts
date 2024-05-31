@@ -1,9 +1,13 @@
 import * as C from "./cst";
+import "kapcacher/global";
 
 async function LoadSprites() {
-  // load assets
-  const l = (name = '') => loadSprite(name, `./sprites/${name}.png`);
-  C.KaboomSprites.map(l);
+  let cacher = new Cacher('game');
+  await cacher.init();
+
+  // @ Load sprites
+  let sc = cacher.createSpriteCacher();
+  await sc.rollout(C.KaboomSprites);
 }
 
 async function LoadScenes() {

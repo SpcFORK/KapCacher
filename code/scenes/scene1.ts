@@ -1,6 +1,4 @@
 scene('init', async () => {
-  loadSprite("bean", "sprites/bean.png")
-
   let c = add([
     sprite("bean"),
     pos(80, 40),

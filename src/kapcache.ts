@@ -1,7 +1,6 @@
 // (c) SpcFORK - Kaboom Cache System
-// 2024-05-29 - 10:00 PM
+// 2024-05-29 - 1:00 AM
 
-import type { KaboomCtx } from "kaplay";
 import * as kbg from "kaplay";
 
 export const HEADER = {
@@ -9,114 +8,117 @@ export const HEADER = {
   version: '0.0.4'
 }
 
-export function CacherPlugin(kbg: KaboomCtx) {
-  class Cacher {
-    private cacheName: string;
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    private _cache: Cache;
-    set cache(v: Cache) {
-      this._cache = v;
-      localStorage.setItem(this.cacheName, JSON.stringify(v));
-      this.initialized = true;
-    }
+export class Cacher {
+  private cacheName: string;
 
-    get cache() {
-      return this._cache;
-    }
-
-    private initialized = false;
-
-    static nsBuilder(ns: string, text: string) {
-      return `${ns}~${text}`;
-    }
-
-    constructor(cacheName: string) {
-      this.cacheName = cacheName;
-    }
-
-    ensureIsInit() {
-      if (!this.initialized)
-        throw new Error("Cache not initialized, will not function without cache");
-    }
-
-    async init() {
-      this.cache = await caches.open(this.cacheName);
-      this.initialized = true;
-    }
-
-    createNamespace(namespace: string): CacherNamespace {
-      this.ensureIsInit();
-      return new CacherNamespace(this, namespace);
-    }
-
-    createSpriteCacher(): SpriteCacher {
-      this.ensureIsInit();
-      return new SpriteCacher(this);
-    }
+  private _cache: Cache;
+  set cache(v: Cache) {
+    this._cache = v;
+    localStorage.setItem(this.cacheName, JSON.stringify(v));
+    this.initialized = true;
   }
 
-  class CacherNamespace {
-    namespace: string;
-    parent: Cacher;
-    cache: () => Cache;
-
-    constructor(parent: Cacher, namespace: string) {
-      parent.ensureIsInit();
-      this.namespace = namespace;
-      this.parent = parent;
-      this.cache = () => this.parent.cache;
-    }
-
-    nsBuilder = (name: string) => Cacher.nsBuilder(this.namespace, name);
-
-    async get(name: string): Promise<Response | undefined> {
-      return await this.cache().match(this.nsBuilder(name));
-    }
-
-    async put(name: string, response: Response) {
-      await this.cache().put(this.nsBuilder(name), response);
-    }
-
-    makeRollout(rolloutList: string[], rolloutInterval = 0) {
-      return new CacheRollout(this, rolloutList, rolloutInterval);
-    }
+  get cache() {
+    return this._cache;
   }
 
-  class CacheRollout {
-    rolloutList: string[];
-    rolloutInterval: number;
-    parent: CacherNamespace;
-    cache: () => Cache;
+  private initialized = false;
 
-    constructor(parent: CacherNamespace, rolloutList: string[], rolloutInterval = 0) {
-      this.rolloutList = rolloutList;
-      this.rolloutInterval = rolloutInterval;
-      this.parent = parent;
-      this.cache = () => parent.cache();
-    }
-
-    async rollout(cb: (name: string, nsName: string, response: Response | undefined, t: InstanceType<typeof CacheRollout>) => any): Promise<any[]> {
-      const results = await Promise.all(this.rolloutList.map(async (name) => {
-        const nsName = this.parent.nsBuilder(name);
-        const response = await this.cache().match(nsName);
-        const result = await cb(name, nsName, response, this);
-        if (this.rolloutInterval > 0) await kbg.wait(this.rolloutInterval);
-        return result;
-      }));
-      return results;
-    }
-
-    // @ Throw out broken Caches
-    async tossBrokenCaches(rolloutList: string[]) {
-      let ck = await this.cache().keys();
-      let arrNotInRLL: string[] = [];
-      for (let req of ck) {
-        let name = req.url.split('/').pop()?.split('~')[1] as string;
-        if (!rolloutList.includes(name)) arrNotInRLL.push(name);
-      }
-      for (let b of arrNotInRLL) await this.cache().delete(b);
-    }
+  static nsBuilder(ns: string, text: string) {
+    return `${ns}~${text}`;
   }
+
+  constructor(cacheName: string) {
+    this.cacheName = cacheName;
+  }
+
+  ensureIsInit() {
+    if (!this.initialized)
+      throw new Error("Cache not initialized, will not function without cache");
+  }
+
+  async init() {
+    this.cache = await caches.open(this.cacheName);
+    this.initialized = true;
+  }
+
+  createNamespace(namespace: string): CacherNamespace {
+    this.ensureIsInit();
+    return new CacherNamespace(this, namespace);
+  }
+
+  createSpriteCacher() {
+    this.ensureIsInit();
+    return new window.SpriteCacher(this);
+  }
+}
+
+export class CacherNamespace {
+  namespace: string;
+  parent: Cacher;
+  cache: () => Cache;
+
+  constructor(parent: Cacher, namespace: string) {
+    parent.ensureIsInit();
+    this.namespace = namespace;
+    this.parent = parent;
+    this.cache = () => this.parent.cache;
+  }
+
+  nsBuilder = (name: string) => Cacher.nsBuilder(this.namespace, name);
+
+  async get(name: string): Promise<Response | undefined> {
+    return await this.cache().match(this.nsBuilder(name));
+  }
+
+  async put(name: string, response: Response) {
+    await this.cache().put(this.nsBuilder(name), response);
+  }
+
+  makeRollout(rolloutList: string[], rolloutInterval = 0) {
+    return new CacheRollout(this, rolloutList, rolloutInterval);
+  }
+}
+
+export class CacheRollout {
+  rolloutList: string[];
+  rolloutInterval: number;
+  parent: CacherNamespace;
+  cache: () => Cache;
+
+  constructor(parent: CacherNamespace, rolloutList: string[], rolloutInterval = 0) {
+    this.rolloutList = rolloutList;
+    this.rolloutInterval = rolloutInterval;
+    this.parent = parent;
+    this.cache = () => parent.cache();
+  }
+
+  async rollout(cb: (name: string, nsName: string, response: Response | undefined, t: InstanceType<typeof CacheRollout>) => any): Promise<any[]> {
+    const results = await Promise.all(this.rolloutList.map(async (name) => {
+      const nsName = this.parent.nsBuilder(name);
+      const response = await this.cache().match(nsName);
+      const result = await cb(name, nsName, response, this);
+      if (this.rolloutInterval > 0) await wait(this.rolloutInterval);
+      return result;
+    }));
+    return results;
+  }
+
+  // @ Throw out broken Caches
+  async tossBrokenCaches(rolloutList: string[]) {
+    let ck = await this.cache().keys();
+    let arrNotInRLL: string[] = [];
+    for (let req of ck) {
+      let name = req.url.split('/').pop()?.split('~')[1] as string;
+      if (!rolloutList.includes(name)) arrNotInRLL.push(name);
+    }
+    for (let b of arrNotInRLL) await this.cache().delete(b);
+  }
+}
+
+export function CacherPlugin(kbg: kbg.KaboomCtx) {
 
   class SpriteCacher {
     namespace: string;
@@ -176,23 +178,4 @@ export function CacherPlugin(kbg: KaboomCtx) {
     CacheRollout,
     SpriteCacher,
   };
-}
-
-export type NS = ReturnType<typeof CacherPlugin>
-
-declare global {
-  interface CacherPlugin {
-    Cacher: NS["Cacher"];
-    CacherNamespace: NS["CacherNamespace"];
-    CacheRollout: NS["CacheRollout"];
-    SpriteCacher: NS["SpriteCacher"];
-  }
-
-  interface Window extends CacherPlugin { }
-  interface globalThis extends CacherPlugin { }
-
-  const Cacher: NS["Cacher"];
-  const CacherNamespace: NS["CacherNamespace"];
-  const CacheRollout: NS["CacheRollout"];
-  const SpriteCacher: NS["SpriteCacher"];
 }

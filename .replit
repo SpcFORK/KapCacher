@@ -1,5 +1,5 @@
 language = "kaboom"
-run = "node run.js"
+run = "./node_modules/.bin/esbuild src/kapcache.ts --minify --sourcemap --outfile=kapcache.js && node_modules/js2dts/dist/bin.js -d ./ src/kapcache.ts && node run run.js"
 entrypoint = "code/main.ts"
 
 hidden = [
